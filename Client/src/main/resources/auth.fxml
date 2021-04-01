@@ -4,7 +4,7 @@
 <?import javafx.scene.control.*?>
 <?import javafx.scene.layout.*?>
 
-<VBox prefHeight="140.0" prefWidth="311.0" xmlns="http://javafx.com/javafx/11.0.1" xmlns:fx="http://javafx.com/fxml/1" fx:controller="controllers.AuthController">
+<VBox prefHeight="140.0" prefWidth="311.0" xmlns="http://javafx.com/javafx/11.0.1" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.github.ilyinus.cloud_storage.controllers.AuthController">
    <children>
       <TextField fx:id="server" promptText="server:port" />
       <TextField fx:id="username" promptText="username">

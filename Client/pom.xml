@@ -10,7 +10,6 @@
     <modelVersion>4.0.0</modelVersion>
 
     <artifactId>Client</artifactId>
-
     <dependencies>
         <dependency>
             <groupId>ru.mail.andreyka.ilin</groupId>
@@ -19,5 +18,4 @@
             <scope>compile</scope>
         </dependency>
     </dependencies>
-
 </project>
