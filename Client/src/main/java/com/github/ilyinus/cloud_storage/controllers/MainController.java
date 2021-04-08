@@ -4,27 +4,21 @@ import com.github.ilyinus.cloud_storage.actions.Action;
 import com.github.ilyinus.cloud_storage.actions.ActionType;
 import com.github.ilyinus.cloud_storage.component.Connection;
 import com.github.ilyinus.cloud_storage.component.FileWatcher;
-import javafx.fxml.Initializable;
-import com.github.ilyinus.cloud_storage.messages.DataMessage;
-import com.github.ilyinus.cloud_storage.messages.DeleteMessage;
-import com.github.ilyinus.cloud_storage.messages.Message;
-import com.github.ilyinus.cloud_storage.messages.RenameMessage;
+import com.github.ilyinus.cloud_storage.crypto.CryptoService;
+import com.github.ilyinus.cloud_storage.crypto.MessageDigestImpl;
+import com.github.ilyinus.cloud_storage.messages.*;
 
 import java.io.*;
-import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.*;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.PriorityBlockingQueue;
 
 public class MainController {
     private Connection connection;
     private Path folder;
-    private BlockingQueue<Action> queue;
+    private PriorityBlockingQueue<Action> queue;
 
     public void setConnection(Connection connection) {
         this.connection = connection;
@@ -35,7 +29,7 @@ public class MainController {
     }
 
     public void init() {
-        queue = new ArrayBlockingQueue<>(100);
+        queue = new PriorityBlockingQueue<>(100);
 
         FileWatcher watcher = new FileWatcher(folder, queue);
         Thread watcherThread = new Thread(watcher);
@@ -67,27 +61,56 @@ public class MainController {
                 String msgUUID = UUID.randomUUID().toString();
 
                 if (Files.size(action.getPath()) == 0) {
-                    connection.sendMessage(new DataMessage(msgUUID, fileName, new byte[0], true));
+                    byte[] data = new byte[0];
+                    connection.sendMessage(new DataMessage(msgUUID,
+                            fileName,
+                            data,
+                            true,
+                            new MessageDigestImpl("md5", data).getHash()));
                 } else {
+                    CryptoService crypto = new MessageDigestImpl("md5");
                     BufferedInputStream bis = new BufferedInputStream(Files.newInputStream(action.getPath(), StandardOpenOption.READ));
                     byte[] buffer = new byte[bufferSize];
                     int len;
+                    boolean isFinalPart;
+                    Message msg;
 
                     while ((len = bis.read(buffer)) != -1) {
-                        Message msg = new DataMessage(msgUUID,
-                                fileName,
-                                len == bufferSize ? buffer : Arrays.copyOf(buffer, len),
-                                bis.available() == 0);
-                        connection.sendMessage(msg);
+                        isFinalPart = bis.available() == 0;
+                        crypto.update(buffer, len);
+
+                        if (isFinalPart) {
+                            msg = new DataMessage(msgUUID,
+                                    fileName,
+                                    len == bufferSize ? buffer : Arrays.copyOf(buffer, len),
+                                    true,
+                                    crypto.getHash());
+                        } else {
+                            msg = new DataMessage(msgUUID,
+                                    fileName,
+                                    len == bufferSize ? buffer : Arrays.copyOf(buffer, len),
+                                    false);
+                        }
+                            connection.sendMessage(msg);
+
                     }
 
                     bis.close();
+
                 }
+
+                Message answer = connection.readMessage();
+
+                if (answer.getType() != MessageType.APPROVE) {
+                    action.setPriority(Integer.MIN_VALUE);
+                    queue.put(action);
+                }
+
             } else if (action.getType() == ActionType.RENAME_FILE) {
                 Message msg = new RenameMessage(action.getOldPath().getFileName().toString(), fileName);
                 connection.sendMessage(msg);
             }
-        } catch (IOException e) {
+        } catch (IOException | ClassNotFoundException e) {
             e.printStackTrace();
         }
     }

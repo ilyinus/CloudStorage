@@ -1,5 +1,7 @@
 package com.github.ilyinus.cloud_storage.handlers;
 
+import com.github.ilyinus.cloud_storage.crypto.CryptoService;
+import com.github.ilyinus.cloud_storage.crypto.MessageDigestImpl;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import com.github.ilyinus.cloud_storage.messages.*;
@@ -16,6 +18,7 @@ public class MessageHandler extends ChannelInboundHandlerAdapter {
     private final UserConfig USER_CONFIG;
     private final Path FULL_PATH;
     private BufferedOutputStream bos;
+    private CryptoService crypto;
     private String curUUID;
 
     public MessageHandler(UserConfig userConfig) {
@@ -33,16 +36,28 @@ public class MessageHandler extends ChannelInboundHandlerAdapter {
             DataMessage message = (DataMessage) msg;
 
             if (!message.getUuid().equals(curUUID)) {
+                crypto = new MessageDigestImpl("md5");
                 curUUID = message.getUuid();
                 bos = new BufferedOutputStream(
                         new FileOutputStream(FULL_PATH.resolve(Paths.get(message.getFileName())).toString()));
             }
 
-            bos.write(message.getData());
+            byte[] dataPart = message.getData();
+            bos.write(dataPart);
+            crypto.update(dataPart, dataPart.length);
 
             if (message.isFinalPart()) {
                 bos.close();
                 bos = null;
+
+                if (message.getMd5().equals(crypto.getHash())) {
+                    ctx.writeAndFlush(new ApproveMessage());
+                } else {
+                    Files.deleteIfExists(FULL_PATH.resolve(Paths.get(message.getFileName())));
+                    Message errorMessage = new ErrorMessage("File has been corrupted");
+                    ctx.writeAndFlush(errorMessage);
+                }
+
             }
         } else if (((Message) msg).getType() == MessageType.RENAME_FILE) {
             RenameMessage message = (RenameMessage) msg;
@@ -52,7 +67,7 @@ public class MessageHandler extends ChannelInboundHandlerAdapter {
     }
 
     @Override
-    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
         cause.printStackTrace();
         ctx.close();
     }
